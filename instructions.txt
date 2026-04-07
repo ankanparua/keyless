@@ -1,0 +1,97 @@
+```aws
+#initialize terraform 
+terraform init
+
+#update variables "github_org" and "github_repo" (if you dont have any organization split your username and repo name to match org & repo name, instead)
+echo 'github_repo = "CIBT"' > terraform.tfvars
+echo 'github_org = "Sairampv98"' > terraform.tfvars
+
+#apply configuration
+terraform plan -out=oidc.plan
+terraform apply oidc.plan
+aws_iam_openid_connect_provider.github: Creating...
+aws_iam_openid_connect_provider.github: Creation complete after 2s [id=arn:aws:iam::612076370250:oidc-provider/token.actions.githubusercontent.com]
+aws_iam_role.ci_cd_role: Creating...
+aws_iam_role.ci_cd_role: Creation complete after 1s [id=GitHubActions-CI-CD-Role]
+aws_iam_role_policy.ci_cd_policy: Creating...
+aws_iam_role_policy.ci_cd_policy: Creation complete after 1s [id=GitHubActions-CI-CD-Role:CI-CD-S3-Read]
+
+Apply complete! Resources: 3 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+oidc_provider_arn = "arn:aws:iam::612076370250:oidc-provider/token.actions.githubusercontent.com"
+role_arn = "arn:aws:iam::612076370250:role/GitHubActions-CI-CD-Role"
+
+
+#copy the role_arn navigate to your GitHub account -> settings -> Secrets and Variables -> Actions -> Secrets -> New Repository Secret and paste it there
+Name: AWS_ROLE_ARN
+Secret: arn:aws:iam::612076370250:role/GitHubActions-CI-CD-Role
+
+#and click the "Add secret button"
+
+
+
+#commit to your GitHub repository
+git clone https://github.com/Sairampv98/CIBT.git
+cd CBIT
+mkdir .github
+cd .github
+mkdir workflows
+cp ../../aws-deploy.yml ./workflows/aws-deploy.yml
+cd ..
+git add .github/workflows/aws-deploy.yml
+git commit -m "feat: add secure OIDC deployment workflow"
+git push
+
+#visit your repo link and navigate to actions tab
+the deployment should have failed with this error "Not authorized to perform sts:AssumeRoleWithWebIdentity"
+
+#now navigate to repo -> settings -> environment -> production -> add environment secret and paste these calues there
+Name: AWS_ROLE_ARN
+Secret: arn:aws:iam::612076370250:role/GitHubActions-CI-CD-Role
+
+#and click the "Add secret button"
+
+#navigate back to the actions tab and you should see the failed deployment, rerun the failed job and you will see it fails with a new error
+#"aws: [Error]: An error occured (access denied) when calling the ListBusckets operation: USer: arn:aws:iam::612076370250:role/GitHubActions-CI-CD-Role
+Role/GitHubActions 
+#is not authorized to perform: s3:ListAllMyBuckets because no identity-based policy allows the s3:ListAllMyBuckets action.
+
+#go back to your aws-oidc-setup.tf file and edit this section at the end of the file
+resource "aws_iam_role_policy" "ci_cd_policy" {
+  name = "CI-CD-S3-Read"
+  role = aws_iam_role.ci_cd_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+# Permission to list the names of ALL buckets in the account
+#=================New-addition=================
+        Effect   = "Allow"
+        Action   = "s3:ListAllMyBuckets"
+        Resource = "*" 
+      },
+      {
+        # Permission to look inside and read from your specific bucket
+        Effect   = "Allow"
+        Action   = [
+          "s3:GetObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "arn:aws:s3:::${var.github_org}-deployment-bucket",
+          "arn:aws:s3:::${var.github_org}-deployment-bucket/*"
+        ]
+      }
+    ]
+  })
+} 
+
+#save and exit file and run "terraform apply" and type "yes" to apply the changes
+terraform apply
+
+
+
+

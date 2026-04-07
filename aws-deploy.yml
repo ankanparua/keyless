@@ -1,0 +1,36 @@
+name: AWS Secure Deployment via OIDC
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+# Security Best Practice: Explicit permissions for the workflow
+permissions:
+  id-token: write   # Required for OIDC
+  contents: read    # Required for checkout
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          # No access keys stored in secrets!
+
+      - name: Verify Identity
+        run: |
+          echo "Assumed Role ARN: $(aws sts get-caller-identity --query Arn --output text)"
+          echo "Account ID: $(aws sts get-caller-identity --query Account --output text)"
+
+      - name: Test S3 Access
+        run: |
+          aws s3 ls s3://${{ vars.S3_BUCKET_NAME }}
+          # This will fail if permissions are too restrictive (Expected for lab)
